@@ -1,63 +1,80 @@
+from flask import g
+
+from shared.utils.http import json_error, missing_fields
 from user_app.services.user_service import UserService
-from shared.models.user_model import User
 from user_app.view.user_view import UserView
-from datetime import datetime
+
+SIGNUP_FIELDS = ['full_name', 'email', 'phone', 'department', 'year', 'student_id', 'password']
+MIN_PASSWORD_LENGTH = 6
+
+
+def _own_account_only(u_id):
+    if u_id != g.principal.u_id:
+        return json_error("You can only view your own data.", 403)
+    return None
 
 
 class UserController:
     @staticmethod
     def signup(data):
-        if User.query.filter_by(student_id=data['student_id']).first() or User.query.filter_by(email=data['email']).first():
-            return UserView.render_error("Student ID or Email already exists"), 400
-        res, user = UserService.signup(data)
-        if res:
-            return UserView.renderUser(user), 201
-        else:
-            return UserView.render_error(user), 500
+        missing = missing_fields(data, SIGNUP_FIELDS)
+        if missing:
+            return json_error(f"Missing required fields: {', '.join(missing)}", 400)
+        if len(str(data['password'])) < MIN_PASSWORD_LENGTH:
+            return json_error(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", 400)
+        if '@' not in str(data['email']):
+            return json_error("Please enter a valid email address.", 400)
+        if UserService.student_id_or_email_taken(data['student_id'], data['email']):
+            return json_error("Student ID or Email already exists", 409)
+
+        user = UserService.signup(data)
+        return UserView.render_session(user), 201
 
     @staticmethod
     def login(data):
-        res, user = UserService.login(data)
-        if res:
-            return UserView.renderUser(user), 200                                
-        else:
-            return UserView.render_error(user), 401
-        
+        if missing_fields(data, ['student_id', 'password']):
+            return json_error("Student ID and password are required.", 400)
+        user = UserService.authenticate(data['student_id'], data['password'])
+        if user is None:
+            return json_error("Invalid student ID or password", 401)
+        return UserView.render_session(user), 200
+
+    @staticmethod
+    def me():
+        return UserView.render_user(g.principal), 200
+
     @staticmethod
     def update(data):
-        full_name = data['full_name']
-        email = data['email']
-        phone = data['phone']
-        u_id = data['u_id']
+        missing = missing_fields(data, ['full_name', 'email'])
+        if missing:
+            return json_error(f"Missing required fields: {', '.join(missing)}", 400)
+        if '@' not in str(data['email']):
+            return json_error("Please enter a valid email address.", 400)
+        if UserService.email_taken_by_other(data['email'], g.principal.u_id):
+            return json_error("That email is already used by another account.", 409)
+        user = UserService.update(g.principal, data)
+        return UserView.render_user(user), 200
 
-        res,user = UserService.update(full_name,email,phone,u_id)
-        if res:
-            return UserView.renderUser(user),200
-        else:
-            return UserView.render_error(user),500
-        
     @staticmethod
-    def get_state_card(u_id):
-        now = datetime.utcnow()
-        this_month = now.month
-        this_year = now.year
+    def change_password(data):
+        if missing_fields(data, ['current_password', 'new_password']):
+            return json_error("Current and new password are required.", 400)
+        if len(str(data['new_password'])) < MIN_PASSWORD_LENGTH:
+            return json_error(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", 400)
+        if not UserService.change_password(g.principal, data['current_password'], data['new_password']):
+            return json_error("Current password is incorrect.", 400)
+        return {"message": "Password updated."}, 200
 
-        if this_month == 1:
-            last_month = 12
-            last_month_year = this_year - 1
-        else:
-            last_month = this_month - 1
-            last_month_year = this_year
-        res,this_month_counts,last_month_counts = UserService.get_state_card(u_id,this_month,this_year,last_month,last_month_year)
-        if res:
-            return UserView.render_stat_card(this_month_counts,last_month_counts),200
-        else:
-            return UserView.render_error(this_month_counts),500
-    
+    @staticmethod
+    def get_stat_card(u_id):
+        denied = _own_account_only(u_id)
+        if denied:
+            return denied
+        return UserView.render_json(UserService.stat_cards(u_id)), 200
+
     @staticmethod
     def grievance_kpi_report(u_id):
-        res,resolution_rate,avg_response_time_seconds = UserService.grievance_kpi_report(u_id)
-        if res:
-            return UserView.render_kpi_report(resolution_rate,avg_response_time_seconds),200
-        else: 
-            return UserView.render_error(resolution_rate),500
+        denied = _own_account_only(u_id)
+        if denied:
+            return denied
+        return UserView.render_json(UserService.kpi_report(u_id)), 200

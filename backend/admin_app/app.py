@@ -1,22 +1,14 @@
-import sys, os
-sys.path.append(os.getcwd())
+"""Admin service: login, grievance management and dashboards (port 5002)."""
+import sys
+from pathlib import Path
 
-from flask import Flask
-from admin_app.routes.admin_routes import admin_bp
-from shared.utils.db_utils import db
-from config.config import connection_string
-from flask_cors import CORS
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-app = Flask(__name__)
-CORS(app)
+from admin_app.routes.admin_routes import admin_bp  # noqa: E402
+from config import config  # noqa: E402
+from shared.app_factory import create_app  # noqa: E402
 
-app.config['SQLALCHEMY_DATABASE_URI'] = connection_string
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ECHO'] = True
-
-db.init_app(app)
-
-app.register_blueprint(admin_bp)
+app = create_app("admin_app", admin_bp)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5002)
+    app.run(host=config.HOST, port=config.ADMIN_SERVICE_PORT, debug=config.FLASK_DEBUG)

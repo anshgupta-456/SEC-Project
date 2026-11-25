@@ -1,102 +1,68 @@
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from shared import stats
+from shared.models.grievance_model import Grievance
 from shared.models.user_model import User
 from shared.utils.db_utils import db
-from shared.models.grievance_model import Grievance
-from werkzeug.security import generate_password_hash,check_password_hash
-from sqlalchemy import func, extract ,text
+from shared.utils.http import clean_str
+
 
 class UserService:
     @staticmethod
+    def student_id_or_email_taken(student_id, email):
+        return db.session.query(User.u_id).filter(
+            (User.student_id == clean_str(student_id)) | (User.email == clean_str(email).lower())
+        ).first() is not None
+
+    @staticmethod
+    def email_taken_by_other(email, u_id):
+        return db.session.query(User.u_id).filter(
+            User.email == clean_str(email).lower(), User.u_id != u_id
+        ).first() is not None
+
+    @staticmethod
     def signup(data):
-        try:
-            hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256', salt_length=8)
-            new_user = User(
-                full_name=data['full_name'],
-                student_id=data['student_id'],
-                email=data['email'],
-                phone=data['phone'],
-                password=hashed_password,
-                department=data['department'],
-                year=data['year']
-            )
-            db.session.add(new_user)
-            db.session.commit()
-            return True, new_user
-        except Exception as error: 
-            db.session.rollback()
-            return False, str(error)
-        
-    @staticmethod
-    def login(data):
-        try:
-            user = User.query.filter_by(student_id=data['student_id']).first()
-            if user and check_password_hash(user.password, data['password']):
-                return True, user
-            else:
-                return False, "Invalid student ID or password"
-        except Exception as error:
-            db.session.rollback()
-            return False, str(error)
+        user = User(
+            full_name=clean_str(data['full_name'], 100),
+            student_id=clean_str(data['student_id'], 100),
+            email=clean_str(data['email'], 100).lower(),
+            phone=clean_str(data['phone'], 15),
+            password=generate_password_hash(str(data['password'])),
+            department=clean_str(data['department'], 500),
+            year=clean_str(data['year'], 10),
+        )
+        db.session.add(user)
+        db.session.commit()
+        return user
 
     @staticmethod
-    def update(full_name, email, phone, u_id):
-        try:
-            user = User.query.filter_by(u_id=u_id).first()
-            print(user)
-            if user:
-                user.full_name = full_name
-                user.email = email
-                user.phone = phone
-                db.session.commit()
-                return True, user
-            return False, "User not Found"
-        except Exception as error:
-            return False, str(error)
-    
+    def authenticate(student_id, password):
+        user = User.query.filter_by(student_id=clean_str(student_id)).first()
+        if user and user.password and check_password_hash(user.password, str(password)):
+            return user
+        return None
+
     @staticmethod
-    def get_state_card(u_id,this_month,this_year,last_month,last_month_year):
-        try:
-            this_month_counts = db.session.query(Grievance.status, func.count(Grievance.g_id)).filter(
-                Grievance.u_id == u_id,
-                extract('month', Grievance.time_stamp) == this_month,
-                extract('year', Grievance.time_stamp) == this_year
-            ).group_by(Grievance.status).all()
+    def update(user, data):
+        user.full_name = clean_str(data['full_name'], 100)
+        user.email = clean_str(data['email'], 100).lower()
+        if 'phone' in data:
+            user.phone = clean_str(data.get('phone'), 15)
+        db.session.commit()
+        return user
 
-            last_month_counts = db.session.query(
-            Grievance.status, func.count(Grievance.g_id)).filter(
-                Grievance.u_id == u_id,
-                extract('month', Grievance.time_stamp) == last_month,
-                extract('year', Grievance.time_stamp) == last_month_year
-            ).group_by(Grievance.status).all()
-            return True,this_month_counts,last_month_counts
-        except Exception as err:
-            return False, str(err),None
-        
     @staticmethod
-    def grievance_kpi_report(u_id):
-        try:
-            total = db.session.query(func.count(Grievance.g_id)).filter(Grievance.u_id==u_id).scalar()
+    def change_password(user, current_password, new_password):
+        if not check_password_hash(user.password, str(current_password)):
+            return False
+        user.password = generate_password_hash(str(new_password))
+        db.session.commit()
+        return True
 
-            resolved = db.session.query(func.count(Grievance.g_id)).filter(
-                Grievance.status == 'Resolved',Grievance.u_id==u_id
-            ).scalar()
+    @staticmethod
+    def stat_cards(u_id):
+        return stats.stat_cards([Grievance.u_id == u_id])
 
-            resolution_rate = (resolved / total) * 100 if total else 0
-    
-            avg_response_time_seconds = db.session.query(
-                func.avg(
-                    func.timestampdiff(
-                        text("SECOND"),
-                        Grievance.time_stamp,
-                        Grievance.updated_at
-                    )
-            ).label('avg_response_time_seconds')).filter(
-                Grievance.status == "Resolved"
-            ).scalar()
-
-            avg_response_time_seconds = avg_response_time_seconds or 0
-            print(resolution_rate,avg_response_time_seconds)
-            return True, resolution_rate,avg_response_time_seconds
-        except Exception as err:
-            print(err)
-            return False,str(err),None
-
+    @staticmethod
+    def kpi_report(u_id):
+        return stats.kpi_report([Grievance.u_id == u_id])

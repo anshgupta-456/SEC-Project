@@ -46,7 +46,7 @@ def upgrade():
     sa.Column('status', sa.String(length=50), nullable=True),
     sa.Column('time_stamp', sa.DateTime(), nullable=True),
     sa.Column('text', sa.Text(), nullable=True),
-    sa.Column('audio', mysql.LONGBLOB(), nullable=True),
+    sa.Column('audio', sa.LargeBinary().with_variant(mysql.LONGBLOB(), 'mysql'), nullable=True),
     sa.Column('u_id', sa.Integer(), nullable=False),
     sa.Column('c_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['c_id'], ['committee.c_id'], ),

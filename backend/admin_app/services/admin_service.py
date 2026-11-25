@@ -1,150 +1,101 @@
+from sqlalchemy.orm import joinedload
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from shared import stats
 from shared.models.admin_model import Admin
-from shared.utils.db_utils import db
-from werkzeug.security import generate_password_hash,check_password_hash
 from shared.models.grievance_model import Grievance
-from shared.models.user_model import User
-from sqlalchemy import func, text, extract ,case
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+from shared.utils.db_utils import db
+from shared.utils.http import clean_str, utcnow
+
+
+def _scope_criteria(c_id):
+    return [Grievance.c_id == c_id] if c_id is not None else []
+
 
 class AdminService:
     @staticmethod
-    def signup(data):
-        try:
-            hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256', salt_length=8)
-            new_admin = Admin(
-                full_name=data['full_name'],
-                admin_id=data['admin_id'],
-                email=data['email'],
-                phone=data['phone'],
-                password=hashed_password,
-                c_id=data['c_id']
-            )
-            db.session.add(new_admin)
-            db.session.commit()
-            return True, new_admin
-        except Exception as error: 
-            db.session.rollback()
-            return False, str(error)
-        
-    @staticmethod
-    def login(data):
-        try:
-            admin = Admin.query.filter_by(admin_id=data['admin_id']).first()
-            if admin and check_password_hash(admin.password, data['password']):
-                return True, admin
-            else:
-                return False, "Invalid Admin ID or password"
-        except Exception as error:
-            db.session.rollback()
-            return False, str(error)
+    def authenticate(identifier, password):
+        identifier = clean_str(identifier)
+        if identifier.isdigit():
+            admin = db.session.get(Admin, int(identifier))
+        else:
+            admin = Admin.query.filter_by(email=identifier.lower()).first()
+        if admin and check_password_hash(admin.password, str(password)):
+            return admin
+        return None
 
     @staticmethod
-    def update(full_name, email, phone, u_id):
-        try:
-            user = Admin.query.filter_by(u_id=u_id).first()
-            if user:
-                user.full_name = full_name
-                user.email = email
-                user.phone = phone
-                db.session.commit()
-                return True, user
-            return False, "User not Found"
-        except Exception as error:
-            return False, str(error)
+    def email_taken(email, exclude_admin_id=None):
+        query = db.session.query(Admin.admin_id).filter(Admin.email == clean_str(email).lower())
+        if exclude_admin_id is not None:
+            query = query.filter(Admin.admin_id != exclude_admin_id)
+        return query.first() is not None
 
     @staticmethod
-    def get_grievance_by_category(status,time_range):
-        try:
-            if time_range and int(time_range) > 0 and status.lower() != "All Complaints".lower(): 
-                counts = db.session.query(
-                    Grievance.c_id , func.count(Grievance.g_id)
-                ).filter(
-                        func.lower(Grievance.status) == status.lower(),
-                        Grievance.time_stamp >= func.now() - text(f"INTERVAL {int(time_range)} MONTH")
-                ).group_by(Grievance.c_id).all()
-                return True,counts
-            
-            elif time_range and int(time_range) > 0 and status.lower() == "All Complaints".lower():
-                counts = db.session.query(
-                    Grievance.c_id , func.count(Grievance.g_id)
-                ).filter(
-                        Grievance.time_stamp >= func.now() - text(f"INTERVAL {int(time_range)} MONTH")
-                ).group_by(Grievance.c_id).all()
-                return True,counts
-            
-            elif time_range and int(time_range) == 0 and status.lower() == "All Complaints".lower():
-                counts = db.session.query(
-                    Grievance.c_id , func.count(Grievance.g_id)
-                ).group_by(Grievance.c_id).all()
-                return True,counts
-            
-            else:
-                counts = db.session.query(
-                    Grievance.c_id , func.count(Grievance.g_id)
-                ).filter(
-                        func.lower(Grievance.status) == status.lower(),
-                ).group_by(Grievance.c_id).all()
-                return True,counts
-
-        except Exception as err:
-            return False, str(err)
-    
-    @staticmethod
-    def get_all_grievance():
-        try:
-            grievances = db.session.query(
-                Grievance.g_id,
-                Grievance.title,
-                Grievance.c_id,
-                Grievance.status,
-                Grievance.time_stamp,
-                User.student_id,
-                User.full_name,
-                Grievance.desc,
-                User.department
-            ).join(
-                User, Grievance.u_id == User.u_id
-            ).order_by(
-                Grievance.time_stamp
-            ).all()
-            return True, grievances
-        except Exception as err:
-            return False, err
+    def create_admin(full_name, email, password, phone=None, c_id=None):
+        admin = Admin(
+            full_name=clean_str(full_name, 100),
+            email=clean_str(email, 100).lower(),
+            phone=clean_str(phone, 20) or None,
+            password=generate_password_hash(str(password)),
+            c_id=c_id,
+            created_at=utcnow(),
+        )
+        db.session.add(admin)
+        db.session.commit()
+        return admin
 
     @staticmethod
-    def get_state_card(this_month,this_year,last_month,last_month_year):
-        try:
-            this_month_counts = db.session.query(Grievance.status, func.count(Grievance.g_id)).filter(
-                extract('month', Grievance.time_stamp) == this_month,
-                extract('year', Grievance.time_stamp) == this_year
-            ).group_by(Grievance.status).all()
-
-            last_month_counts = db.session.query(
-            Grievance.status, func.count(Grievance.g_id)).filter(
-                extract('month', Grievance.time_stamp) == last_month,
-                extract('year', Grievance.time_stamp) == last_month_year
-            ).group_by(Grievance.status).all()
-            return True,this_month_counts,last_month_counts
-        except Exception as err:
-            return False, str(err),None
+    def update(admin, data):
+        admin.full_name = clean_str(data['full_name'], 100)
+        admin.email = clean_str(data['email'], 100).lower()
+        if 'phone' in data:
+            admin.phone = clean_str(data.get('phone'), 20) or None
+        db.session.commit()
+        return admin
 
     @staticmethod
-    def get_line_graph_data(time_range):
-        try:
-            result = db.session.query(
-                func.monthname(Grievance.time_stamp).label('month'),
-                func.count().label('totalComplaints'),
-                func.sum(
-                    case((Grievance.status == 'resolved', 1), else_=0)
-                ).label('resolved')
-                ).filter(
-                    Grievance.time_stamp >= func.now() - text(f"INTERVAL {int(time_range)} MONTH")
-                ).group_by(
-                    func.month(Grievance.time_stamp), func.monthname(Grievance.time_stamp)
-                ).order_by(
-                    func.month(Grievance.time_stamp)).all()
-            return True, result
-        except Exception as err:
-            return False,str(err)
-    
+    def change_password(admin, current_password, new_password):
+        if not check_password_hash(admin.password, str(current_password)):
+            return False
+        admin.password = generate_password_hash(str(new_password))
+        db.session.commit()
+        return True
+
+    @staticmethod
+    def get_all_grievance(c_id=None):
+        return (
+            Grievance.query.options(joinedload(Grievance.user))
+            .filter(*_scope_criteria(c_id))
+            .order_by(Grievance.time_stamp.desc(), Grievance.g_id.desc())
+            .all()
+        )
+
+    @staticmethod
+    def get_grievance(g_id):
+        return db.session.get(Grievance, g_id)
+
+    @staticmethod
+    def update_grievance_status(grievance, status, remarks=None):
+        grievance.status = status
+        if remarks is not None:
+            grievance.remarks = clean_str(remarks) or None
+        grievance.updated_at = utcnow()
+        db.session.commit()
+        return grievance
+
+    @staticmethod
+    def category_counts(c_id, status, months):
+        return stats.category_counts(_scope_criteria(c_id), status, months)
+
+    @staticmethod
+    def stat_cards(c_id):
+        return stats.stat_cards(_scope_criteria(c_id))
+
+    @staticmethod
+    def monthly_trend(c_id, months):
+        return stats.monthly_trend(_scope_criteria(c_id), months)
+
+    @staticmethod
+    def kpi_report(c_id):
+        return stats.kpi_report(_scope_criteria(c_id))

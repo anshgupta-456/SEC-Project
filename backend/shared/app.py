@@ -1,19 +1,13 @@
-from flask import Flask
-from shared.utils.db_utils import db
-from shared.utils.db_utils import migrate
-from config.config import connection_string
+"""App used by Flask-Migrate (``flask --app shared/app.py db ...``).
 
+Most people never need this directly: ``python manage.py init-db`` applies
+migrations and seeds the committees.
+"""
+import sys
+from pathlib import Path
 
-app = Flask(__name__)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-app.config['SQLALCHEMY_DATABASE_URI'] = connection_string
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+from shared.app_factory import create_app  # noqa: E402
 
-
-db.init_app(app)
-migrate.init_app(app, db)
-
-from shared.models import user_model
-from shared.models import grievance_model
-from shared.models import commitee_model
-from shared.models import admin_model
+app = create_app("migrations")

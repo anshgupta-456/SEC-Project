@@ -1,22 +1,14 @@
-import sys, os
-sys.path.append(os.getcwd())
+"""Student service: signup, login, profile and personal dashboard (port 5000)."""
+import sys
+from pathlib import Path
 
-from flask import Flask
-from user_app.routes.user_routes import user_bp
-from shared.utils.db_utils import db
-from config.config import connection_string
-from flask_cors import CORS
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-app = Flask(__name__)
-CORS(app)
+from config import config  # noqa: E402
+from shared.app_factory import create_app  # noqa: E402
+from user_app.routes.user_routes import user_bp  # noqa: E402
 
-app.config['SQLALCHEMY_DATABASE_URI'] = connection_string
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ECHO'] = True
-
-db.init_app(app)
-
-app.register_blueprint(user_bp)
+app = create_app("user_app", user_bp)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host=config.HOST, port=config.USER_SERVICE_PORT, debug=config.FLASK_DEBUG)

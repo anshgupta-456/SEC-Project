@@ -1,0 +1,5 @@
+# Optional: zero-shot committee classification with facebook/bart-large-mnli.
+# Large install (PyTorch) and ~1.6 GB model download on first use.
+-r requirements.txt
+transformers>=4.44,<5
+torch>=2.4

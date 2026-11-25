@@ -1,46 +1,46 @@
-from flask import jsonify ,send_file, make_response
-from io import BytesIO
-from urllib.parse import urlparse
+from flask import Response, jsonify
 
-c_id_to_comittee_name = {
-    1 : "examination",
-    2 : "infrastructure", 
-    3 : "general facility",
-    4 : "research facility",
-    5 : "journals/literature",
-    6 : "fellowship"
-}
+from shared.serializers import grievance_to_dict
+
+
+def sniff_audio_mimetype(blob):
+    """Best-effort content type for stored recordings (no mime column in the DB)."""
+    head = bytes(blob[:12])
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return "audio/webm"
+    if head.startswith(b"RIFF") and head[8:12] == b"WAVE":
+        return "audio/wav"
+    if head.startswith(b"OggS"):
+        return "audio/ogg"
+    if head.startswith(b"ID3") or head[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return "audio/mpeg"
+    if head[4:8] == b"ftyp":
+        return "audio/mp4"
+    return "application/octet-stream"
+
 
 class GrievanceView:
     @staticmethod
-    def render_grievance(grievance):
-        return {
-            "id": grievance.g_id,
-            "title": grievance.title,
-            "desc": grievance.desc,
-            "language": grievance.language,
-            "u_id": grievance.u_id,
-            "c_id": c_id_to_comittee_name[grievance.c_id],
-            "status": grievance.status,
-            "time_stamp": grievance.time_stamp,
-        }
+    def render_created(grievance, assigned_by):
+        data = grievance_to_dict(grievance)
+        data["assigned_by"] = assigned_by
+        return jsonify(data)
 
     @staticmethod
     def render_grievances(grievances):
-        return [GrievanceView.render_grievance(grievance) for grievance in grievances]
+        return jsonify([grievance_to_dict(g) for g in grievances])
 
     @staticmethod
     def render_text(text):
-        return jsonify(text)
-    
+        return jsonify({"text": text})
+
     @staticmethod
-    def render_audio(blob_data):
-        try:
-            audio_stream = BytesIO(blob_data)
-            response = make_response(send_file(audio_stream, mimetype='audio/mpeg'))
-            response.headers['Content-Disposition'] = 'inline; filename=audio.mp3'
-            return response
-        except Exception as e:
-            print(f"Error processing audio data: {e}")
-            return None
-        
+    def render_audio(blob):
+        mimetype = sniff_audio_mimetype(blob)
+        extension = {"audio/webm": "webm", "audio/wav": "wav", "audio/ogg": "ogg",
+                     "audio/mpeg": "mp3", "audio/mp4": "m4a"}.get(mimetype, "bin")
+        return Response(
+            bytes(blob),
+            mimetype=mimetype,
+            headers={"Content-Disposition": f"inline; filename=grievance-audio.{extension}"},
+        )
