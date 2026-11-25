@@ -1,199 +1,115 @@
-import React, { useCallback, useContext, useState } from 'react';
-import {
-  Box,
-  Typography,
-  Paper,
-  Avatar,
-  Grid,
-  TextField,
-  Button,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  withTheme,
-} from '@mui/material';
-import {
-  School,
-  Badge,
-  Edit,
-  Save,
-} from '@mui/icons-material';
+import { useContext, useState } from 'react';
+import { Alert, Button, TextField } from '@mui/material';
+import { api } from '../api';
+import { userContext } from '../context/usercontext.jsx';
 
-import { userContext } from "../context/usercontext.jsx"
+const Detail = ({ label, children }) => (
+  <div>
+    <div className="detail-label">{label}</div>
+    <div className="detail-value">{children || '—'}</div>
+  </div>
+);
 
+/** Profile page for students and admins (same layout, role-specific details). */
 const Profile = () => {
+  const { User, isAdmin, setUser } = useContext(userContext);
   const [isEditing, setIsEditing] = useState(false);
-  const { User, setUser } = useContext(userContext)
-  const [copyUser, setcopyUser] = useState({})
+  const [form, setForm] = useState({ full_name: '', email: '', phone: '' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState(null);
 
-  const [name, setName] = useState(null)
-  const [email, setEmail] = useState(null)
-  const [phone, setPhone] = useState(null)
-
-
-  const handleEdit = useCallback(() => {
+  const startEdit = () => {
+    setForm({ full_name: User.full_name || '', email: User.email || '', phone: User.phone || '' });
+    setMessage(null);
     setIsEditing(true);
-    setName(User.full_name)
-    setEmail(User.email)
-    setPhone(User.phone)
-  }, [isEditing, User, phone, email, name]);
+  };
 
-  const handleSave = useCallback(async () => {
+  const save = async (event) => {
+    event.preventDefault();
+    if (!form.full_name.trim() || !form.email.trim()) {
+      setMessage({ severity: 'error', text: 'Name and email are required.' });
+      return;
+    }
+    setSaving(true);
     try {
-      let data = {
-        u_id: User.u_id,
-        full_name: name,
-        email: email,
-        phone: phone
-      }
-      let res = await fetch("http://127.0.0.1:5000/update", {
-        method: 'PUT',
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data)
-      })
-
-      let resData = await res.json()
-      if (res.status == 200) {
-        setUser(resData)
-        alert("Changes saved successfully");
-      } else {
-        alert("Failed to save changes");
-      }
-    } catch (error) {
-      alert("An error occurred: " + error.message);
-    } finally {
+      setUser(await api.put(isAdmin ? 'admin' : 'user', '/update', form));
       setIsEditing(false);
+      setMessage({ severity: 'success', text: 'Profile updated.' });
+    } catch (error) {
+      setMessage({ severity: 'error', text: error.message });
+    } finally {
+      setSaving(false);
     }
-  }, [User, email, phone, name]);
+  };
 
-  const handleChange = useCallback((field) => (event) => {
-    if (field == 'name') {
-      setName(event.target.value)
-    } else if (field == 'email') {
-      setEmail(event.target.value)
-    } else {
-      setPhone(event.target.value)
-    }
-  }, [name, email, phone, User]);
+  const change = (field) => (event) => setForm({ ...form, [field]: event.target.value });
+  const initials = (User.full_name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 
   return (
-    <div className="profile-cont">
-      <Box>
-        <Typography variant="h4" sx={{ mb: 4 }}>
-          Profile
-        </Typography>
+    <div style={{ maxWidth: 860, display: 'grid', gap: 24 }}>
+      {message && <Alert severity={message.severity} onClose={() => setMessage(null)}>{message.text}</Alert>}
 
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 3, textAlign: 'center' }}>
-              <Avatar
-                sx={{
-                  width: 120,
-                  height: 120,
-                  mx: 'auto',
-                  mb: 2,
-                  bgcolor: 'primary.main',
-                }}
-              >
-                {User.full_name && User.full_name.charAt(0)}
-              </Avatar>
-              <Typography variant="h5" gutterBottom>
-                {User.full_name}
-              </Typography>
-              <Typography color="textSecondary" gutterBottom>
-                {User.department}
-              </Typography>
-              <Button
-                variant="outlined"
-                startIcon={isEditing ? <Save /> : <Edit />}
-                onClick={isEditing ? handleSave : handleEdit}
-                sx={{ mt: 2, backgroundColor: 'black', borderRadius: '3px', color: 'white' }}
-              >
-                {isEditing ? 'Save Changes' : 'Edit Profile'}
-              </Button>
-            </Paper>
-          </Grid>
+      <section className="panel">
+        <div className="panel-body" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div className="initials" style={{ width: 64, height: 64, fontSize: '1.5rem', borderRadius: 16 }}>{initials}</div>
+          <div style={{ flex: 1 }}>
+            <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>{User.full_name}</h2>
+            <div style={{ color: 'var(--ink-2)', marginTop: 4 }}>
+              {isAdmin ? `Committee admin · ${User.committee}` : `${User.department || 'Student'} · Year ${User.year || '—'}`}
+            </div>
+          </div>
+          {!isEditing && <Button variant="outlined" onClick={startEdit}>Edit details</Button>}
+        </div>
+      </section>
 
-          <Grid item xs={12} md={8}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Personal Information
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
+      <section className="panel">
+        <div className="panel-head"><h2 className="panel-title">Contact details</h2></div>
+        {isEditing ? (
+          <form className="panel-body" onSubmit={save} noValidate>
+            <div className="field-row">
+              <TextField label="Full name" value={form.full_name} onChange={change('full_name')} required autoFocus />
+              <TextField label="Phone" value={form.phone} onChange={change('phone')} />
+            </div>
+            <TextField label="Email" type="email" value={form.email} onChange={change('email')} required fullWidth />
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 22 }}>
+              <Button variant="outlined" onClick={() => setIsEditing(false)} disabled={saving}>Cancel</Button>
+              <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button>
+            </div>
+          </form>
+        ) : (
+          <div className="panel-body">
+            <div className="detail-grid" style={{ margin: 0 }}>
+              <Detail label="Full name">{User.full_name}</Detail>
+              <Detail label="Email">{User.email}</Detail>
+              <Detail label="Phone">{User.phone}</Detail>
+              <Detail label={isAdmin ? 'Admin ID' : 'Student ID'}>
+                <span className="mono">{isAdmin ? User.admin_id : User.student_id}</span>
+              </Detail>
+            </div>
+          </div>
+        )}
+      </section>
 
-              <Grid container spacing={3}>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Full Name"
-                    value={isEditing ? name : User.full_name}
-                    onChange={handleChange('name')}
-                    disabled={!isEditing}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Email"
-                    value={isEditing ? email : User.email}
-                    onChange={handleChange('email')}
-                    disabled={!isEditing}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Phone"
-                    value={isEditing ? phone : User.phone}
-                    onChange={handleChange('phone')}
-                    disabled={!isEditing}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Student ID"
-                    value={User.student_id}
-                    disabled
-                  />
-                </Grid>
-              </Grid>
-
-              <Typography variant="h6" sx={{ mt: 4, mb: 2 }}>
-                Academic Information
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
-
-              <List>
-                <ListItem>
-                  <ListItemIcon>
-                    <School />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Department"
-                    secondary={User.department}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <Badge />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary="Year"
-                    secondary={User.year}
-                  />
-                </ListItem>
-              </List>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Box>
+      <section className="panel">
+        <div className="panel-head"><h2 className="panel-title">{isAdmin ? 'Committee' : 'Academic'}</h2></div>
+        <div className="panel-body">
+          <div className="detail-grid" style={{ margin: 0 }}>
+            {isAdmin ? (
+              <Detail label="Responsible for">{User.committee}</Detail>
+            ) : (
+              <>
+                <Detail label="Department">{User.department}</Detail>
+                <Detail label="Year">{User.year}</Detail>
+              </>
+            )}
+          </div>
+          <p className="field-hint" style={{ margin: '18px 0 0' }}>
+            {isAdmin ? 'Committee assignment is managed by an all-committee administrator.' : 'Contact the administration office to correct academic details.'}
+          </p>
+        </div>
+      </section>
     </div>
   );
 };
 
-export default Profile; 
+export default Profile;

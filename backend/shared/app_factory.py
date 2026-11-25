@@ -20,7 +20,13 @@ def _ensure_sqlite_dir(uri):
         Path(uri[len("sqlite:///"):]).parent.mkdir(parents=True, exist_ok=True)
 
 
-def create_app(name, blueprint=None, overrides=None):
+def create_app(name, blueprint=None, overrides=None, blueprints=None):
+    """Create a service app.
+
+    ``blueprint`` registers one blueprint at the root (the per-service apps);
+    ``blueprints`` is a list of ``(blueprint, url_prefix)`` pairs (the combined
+    production app in ``wsgi.py``).
+    """
     global _warned_about_secret
 
     app = Flask(name, root_path=str(config.BACKEND_DIR))
@@ -47,8 +53,11 @@ def create_app(name, blueprint=None, overrides=None):
 
     if blueprint is not None:
         app.register_blueprint(blueprint)
+    for bp, prefix in blueprints or []:
+        app.register_blueprint(bp, url_prefix=prefix)
 
     @app.get("/health")
+    @app.get("/api/health")
     def health():
         return jsonify(status="ok", service=name)
 

@@ -1,214 +1,98 @@
-import React, { useEffect,useState,useContext } from 'react';
-import {
-  Box,
-  Grid,
-  Paper,
-  Typography,
-  Button,
-  Card,
-  CardContent,
-  CardActions,
-  LinearProgress,
-} from '@mui/material';
-import {
-  Report,
-  CheckCircle,
-  Pending,
-  Add,
-  TrendingUp,
-  TrendingDown,
-  RestaurantMenuRounded,
-} from '@mui/icons-material';
-import { PieChart } from '@mui/x-charts/PieChart';
+import { useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Alert, Button, LinearProgress } from '@mui/material';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
+import { api } from '../api';
 import { userContext } from '../context/usercontext';
+import { statusTokens } from '../theme';
+import { formatDays } from '../utils/format';
+import StatStrip from './StatCard';
 
-const StatCard = ({ title, value, trend }) => (
-  <Card sx={{ height: '100%' }}>
-    <CardContent>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography color="textSecondary" gutterBottom>
-          {title}
-        </Typography>
-        {title == 'Total Complaints' ? <Report sx={{ color: 'primary.main' }} /> : title == "Resolved" ? <CheckCircle sx={{ color: 'success.main' }} /> : <Pending sx={{ color: 'warning.main' }} /> }
-      </Box>
-      <Typography variant="h4" component="div" sx={{ mb: 1 }}>
-        {value}
-      </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-        {trend > 0 ? <TrendingUp color="success" /> : <TrendingDown color="error" />}
-        <Typography variant="body2" color={trend > 0 ? 'success.main' : 'error.main'} sx={{ ml: 1 }}>
-          {Math.abs(trend)}% from last month
-        </Typography>
-      </Box>
-    </CardContent>
-  </Card>
-);
-
-const QuickActionCard = ({ title, description, icon, action }) => (
-  <Card sx={{ height: '100%' }}>
-    <CardContent>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        {title == 'Total Complaints' ? <Report sx={{ color: 'primary.main' }} /> : title == "Resolved" ? <CheckCircle sx={{ color: 'success.main' }} /> : <Pending sx={{ color: 'warning.main' }} /> }
-        <Typography variant="h6" sx={{ ml: 1 }}>
-          {title}
-        </Typography>
-      </Box>
-      <Typography variant="body2" color="textSecondary">
-        {description}
-      </Typography>
-    </CardContent>
-    <CardActions>
-      <Button size="small" sx={{color:'white',backgroundColor:'black'}} onClick={action}>Take Action</Button>
-    </CardActions>
-  </Card>
-);
+const SLICES = [
+  { key: 'pending', status: 'Pending' },
+  { key: 'in_progress', status: 'In Progress' },
+  { key: 'resolved', status: 'Resolved' },
+];
 
 const Dashboard = () => {
-
-  const [stats, setstats] = useState([])
-  const [activity, setacivity] = useState([])
-  const { User, setUser } = useContext(userContext)
-  // const stats = [
-  //   {
-  //     title: 'Total Complaints',
-  //     value: '156',
-  //     trend: 12,
-  //   },
-  //   {
-  //     title: 'Resolved',
-  //     value: '89',
-  //     trend: 8,
-  //   },
-  //   {
-  //     title: 'Pending',
-  //     value: '67',
-  //     trend: -5,
-  //   },
-  // ];
-
-  const fetch_stats_data = async() =>{
-    let res = await fetch(`http://127.0.0.1:5000/get_data_statcard/${User.u_id}`)
-    if (res.ok) {
-      let stats_data = await res.json()
-      setstats(stats_data)
-    }
-  }
-
-  const fetch_recent_acivity_data = async () =>{
-    let res = await fetch(`http://127.0.0.1:5000/grievance/kpi_report/${User.u_id}`)
-    if(res.ok){
-      let data = await res.json()
-      setacivity(data)
-    }
-  }
+  const { User } = useContext(userContext);
+  const navigate = useNavigate();
+  const [stats, setStats] = useState([]);
+  const [kpi, setKpi] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if(User.u_id){
-        fetch_stats_data()
-        fetch_recent_acivity_data()
-    }
-  }, [])
-  
+    if (!User.u_id) return;
+    Promise.all([
+      api.get('user', `/get_data_statcard/${User.u_id}`),
+      api.get('user', `/grievance/kpi_report/${User.u_id}`),
+    ])
+      .then(([cards, report]) => { setStats(cards); setKpi(report); })
+      .catch((err) => setError(err.message));
+  }, [User.u_id]);
 
-  const quickActions = [
-    {
-      title: 'New Complaint',
-      description: 'Submit a new grievance or complaint',
-      icon: <Add color="primary" />
-    },
-  ];
-
-  let desktopOS = () => { 
-    return [
-          { id: 1, value: stats[0].value, label: 'Total Complain', color: '#9c27b0' },
-          { id: 0, value: stats[1].value, label: 'Resolved', color: '#4caf50' },
-          { id: 2, value: stats[2].value, label: 'Pending', color: '#1976d2' }
-    ]
-  };
-
-  const valueFormatter = (value) => `${value}%`;
+  const byKey = Object.fromEntries(stats.map((s) => [s.key, s.value]));
+  const pieData = SLICES.map((s) => ({ name: s.status, value: byKey[s.key] || 0, color: statusTokens[s.status].dot }))
+    .filter((s) => s.value > 0);
 
   return (
-    <div className='profile-cont'>
-      <Box>
-        <Typography variant="h4" sx={{ mb: 4 }}>
-          Dashboard
-        </Typography>
+    <>
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+      <StatStrip stats={stats} loading={!stats.length && !error} />
 
-        <Grid container spacing={3.1} sx={{ mb: 4 }}>
-          {stats.map((stat, index) => (
-            <Grid item xs={12} md={4} key={index}>
-              <StatCard {...stat} />
-            </Grid>
-          ))}
-          {stats.length > 0 && <PieChart
-            series={[
-              {
-                data: desktopOS(),
-                highlightScope: { fade: 'global', highlight: 'item' },
-                faded: { innerRadius: 30, additionalRadius: -30, color: 'gray' },
-                valueFormatter,
-              },
-            ]}
-            height={200}
-            width={500} />}
-        </Grid>
+      <div className="dash-grid">
+        <section className="panel">
+          <div className="panel-head"><h2 className="panel-title">Where things stand</h2></div>
+          <div className="panel-body" style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 240px) 1fr', gap: 28, alignItems: 'center' }}>
+            <div style={{ height: 210 }}>
+              {pieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="95%" paddingAngle={2} stroke="none">
+                      {pieData.map((slice) => <Cell key={slice.name} fill={slice.color} />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="empty" style={{ padding: 24 }}><p>{stats.length ? 'No grievances yet.' : 'Loading…'}</p></div>
+              )}
+            </div>
+            <div>
+              <div className="legend" style={{ marginBottom: 22 }}>
+                {SLICES.map((s) => (
+                  <span key={s.key}><i style={{ background: statusTokens[s.status].dot }} />{s.status} · {byKey[s.key] ?? 0}</span>
+                ))}
+              </div>
+              {kpi && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.88rem' }}>
+                    <span>Resolution rate</span>
+                    <span className="num">{kpi.resolution_rate}% · {kpi.resolved} of {kpi.total}</span>
+                  </div>
+                  <LinearProgress variant="determinate" value={Math.min(100, kpi.resolution_rate)} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, fontSize: '0.88rem' }}>
+                    <span>Typical time to resolution</span>
+                    <span className="num">{kpi.resolved ? formatDays(kpi.avg_resolution_days) : '—'}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
 
-        <Grid container spacing={3}>
-          {activity.length > 0 && <Grid item xs={12} md={8}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                Recent Activity
-              </Typography>
-              <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2">Complaints Resolution Rate</Typography>
-                  <Typography variant="body2">{activity[0].value}%</Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={activity[0].value}
-                  sx={{
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: '#e0e0e0',
-                    '& .MuiLinearProgress-bar': {
-                      backgroundColor: 'black',
-                    },
-                  }} />
-              </Box>
-              <Box sx={{ mb: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2">Average Response Time</Typography>
-                  <Typography variant="body2">{activity[1].value} days</Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={activity[1].value}
-                  sx={{
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: '#e0e0e0',
-                    '& .MuiLinearProgress-bar': {
-                      backgroundColor: 'black',
-                    },
-                  }}
-                />
-              </Box>
-            </Paper>
-          </Grid>}
-          <Grid item xs={12} md={4}>
-            <Grid container spacing={2}>
-              {quickActions.map((action, index) => (
-                <Grid item xs={12} key={index}>
-                  <QuickActionCard {...action} />
-                </Grid>
-              ))}
-            </Grid>
-          </Grid>
-        </Grid>
-      </Box>
-    </div>
+        <aside className="aside-card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <h3>Something not right?</h3>
+          <p className="field-hint" style={{ fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 20px' }}>
+            Raise a grievance in English, Hindi, Marathi or Gujarati, by typing or speaking. It goes straight
+            to the committee responsible.
+          </p>
+          <Button variant="contained" onClick={() => navigate('/addGrievance')} sx={{ alignSelf: 'flex-start', mt: 'auto' }}>
+            Raise a grievance
+          </Button>
+        </aside>
+      </div>
+    </>
   );
 };
 

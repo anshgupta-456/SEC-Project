@@ -1,208 +1,170 @@
-import React, { useState, useEffect } from 'react'
-import GrievanceCard from './grievanceCard'
-import "../css/grievancelist.css"
-import refreshIcon from "/refreash.svg"
-import filterIcon from "/filter.svg"
-import { useContext } from 'react'
-import { userContext } from '../context/usercontext'
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Box,
-  Paper,
-  Typography,
-  Chip,
-  IconButton,
+  Alert,
   Button,
+  CircularProgress,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
-  Grid,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
-import {
-  PlayArrow as PlayArrowIcon,
-  Pause as PauseIcon,
-  Close as CloseIcon,
-} from '@mui/icons-material';
-
+import CloseIcon from '@mui/icons-material/Close';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
+import { api } from '../api';
+import { STATUSES } from '../constants';
+import { userContext } from '../context/usercontext';
+import { formatDate } from '../utils/format';
+import GrievanceAudio from './GrievanceAudio';
+import GrievanceCard from './grievanceCard';
+import StatusChip from './StatusChip';
 
 const Grienvancelist = () => {
-  const { User } = useContext(userContext)
-  const [grievances, setGrievances] = useState([])
-  const [currGrie, setcurrGrie] = useState({})
-  const [openDialog, setOpenDialog] = useState(false)
+  const { User } = useContext(userContext);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [grievances, setGrievances] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selected, setSelected] = useState(null);
+  const [flash, setFlash] = useState(location.state?.message || '');
 
-  const get_all_grievance = async () => {
-    let res = await fetch(`http://127.0.0.1:5001/get_all_grievance/${User.u_id}`)
-    if (res.ok) {
-      res = await res.json()
-      setGrievances(res)
+  const loadGrievances = useCallback(async () => {
+    if (!User.u_id) return;
+    setLoading(true);
+    setError('');
+    try {
+      setGrievances(await api.get('grievance', `/get_all_grievance/${User.u_id}`));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [User.u_id]);
 
   useEffect(() => {
-    if (User.u_id) {
-      get_all_grievance()
-    }
-  }, [User])
+    loadGrievances();
+  }, [loadGrievances]);
+
+  // Drop the one-time success message from history so a reload doesn't repeat it.
+  useEffect(() => {
+    if (location.state?.message) navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
+
+  const counts = useMemo(() => {
+    const result = { all: grievances.length };
+    STATUSES.forEach((s) => { result[s] = grievances.filter((g) => g.status === s).length; });
+    return result;
+  }, [grievances]);
+
+  const visible = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return grievances.filter((g) =>
+      (statusFilter === 'all' || g.status === statusFilter) &&
+      (!query || [g.title, g.description, g.committee, String(g.id)].some((v) => v?.toLowerCase().includes(query))));
+  }, [grievances, search, statusFilter]);
 
   return (
-    <div className='grievance-list-cont bg-white'>
-      <div className='grie-list-header'>
-        <div>
-          <div className='list-filter'>
-            <img src={filterIcon} alt="" />
-            <p> Filter </p>
-          </div>
-          <div>
-            <div className='list-refresh'>
-              <img src={refreshIcon} alt="" />
-              <p> Refresh </p>
-            </div>
-            <div className='list-search'>
-              <input type="search" id="" placeholder='Search Here' className='header-search-input' />
-            </div>
-          </div>
+    <>
+      {flash && <Alert severity="success" onClose={() => setFlash('')} sx={{ mb: 3 }}>{flash}</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+
+      <div className="toolbar">
+        <div className="segmented" role="group" aria-label="Filter by status">
+          {['all', ...STATUSES].map((s) => (
+            <button key={s} type="button" aria-pressed={statusFilter === s} onClick={() => setStatusFilter(s)}>
+              {s === 'all' ? 'All' : s} <span className="count">{counts[s]}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label className="search">
+            <SearchIcon />
+            <input type="search" placeholder="Search title, text or ID" value={search}
+              onChange={(e) => setSearch(e.target.value)} aria-label="Search grievances" />
+          </label>
+          <Tooltip title="Refresh">
+            <IconButton onClick={loadGrievances} aria-label="Refresh"><RefreshIcon /></IconButton>
+          </Tooltip>
         </div>
       </div>
-      <div className='grie-card-cont'>
-        {grievances.map((grievance) => {
-          return <GrievanceCard grievance={grievance} setOpenDialog={setOpenDialog} setcurrGrie={setcurrGrie}/>
-        })}
+
+      <div className="panel">
+        {loading && <div className="empty"><CircularProgress size={28} /></div>}
+
+        {!loading && !error && grievances.length === 0 && (
+          <div className="empty">
+            <h3>Nothing raised yet</h3>
+            <p>When something on campus isn’t working, raise it here. Type it or record it in your own language.</p>
+            <Button variant="contained" onClick={() => navigate('/addGrievance')}>Raise your first grievance</Button>
+          </div>
+        )}
+        {!loading && grievances.length > 0 && visible.length === 0 && (
+          <div className="empty"><p>No grievances match this filter.</p></div>
+        )}
+
+        {!loading && visible.length > 0 && (
+          <ul className="ledger">
+            {visible.map((grievance) => (
+              <GrievanceCard key={grievance.id} grievance={grievance} onOpen={() => setSelected(grievance)} />
+            ))}
+          </ul>
+        )}
       </div>
-      <GrievanceDialog
-        open={openDialog}
-        onClose={() => { setOpenDialog(false) }}
-        grievance={currGrie}
-      />
-    </div>
-  )
+
+      {selected && <GrievanceDialog grievance={selected} student={User} onClose={() => setSelected(null)} />}
+    </>
+  );
 };
 
 export default Grienvancelist;
 
+const Detail = ({ label, children }) => (
+  <div>
+    <div className="detail-label">{label}</div>
+    <div className="detail-value">{children || '—'}</div>
+  </div>
+);
 
-const GrievanceDialog = ({ open, onClose, grievance }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [audio] = useState(new Audio(grievance?.audioUrl));
-  const { User } = useContext(userContext)
+const GrievanceDialog = ({ grievance, student, onClose }) => (
+  <Dialog open onClose={onClose} fullWidth maxWidth="md">
+    <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, pr: 2 }}>
+      <span>
+        <span className="mono" style={{ display: 'block', fontSize: '0.8rem', color: 'var(--ink-3)', marginBottom: 6 }}>
+          Grievance #{String(grievance.id).padStart(4, '0')}
+        </span>
+        {grievance.title}
+      </span>
+      <IconButton onClick={onClose} size="small" aria-label="Close"><CloseIcon /></IconButton>
+    </DialogTitle>
+    <DialogContent dividers>
+      <StatusChip status={grievance.status} />
+      <div className="detail-grid">
+        <Detail label="Committee">{grievance.committee}</Detail>
+        <Detail label="Submitted">{formatDate(grievance.created_at, true)}</Detail>
+        <Detail label="Last updated">{formatDate(grievance.updated_at, true)}</Detail>
+        <Detail label="Raised by">{student.full_name} · {student.student_id}</Detail>
+      </div>
+      <div className="detail-label">Description</div>
+      <p className="prose">{grievance.description}</p>
 
-  const handlePlayPause = () => {
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
-
-  useEffect(() => {
-    audio.addEventListener('ended', () => setIsPlaying(false));
-    return () => {
-      audio.removeEventListener('ended', () => setIsPlaying(false));
-      audio.pause();
-    };
-  }, [audio]);
-
-  if (!grievance) return null;
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Resolved': return 'success';
-      case 'Pending': return 'warning';
-      case 'In Progress': return 'info';
-      default: return 'default';
-    }
-  };
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      fullWidth
-    >
-      <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h6">Grievance Details</Typography>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent dividers>
-        <Grid container spacing={3}>
-          <Grid item xs={12}>
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="h5" gutterBottom>{grievance.title}</Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Chip
-                  label={grievance.status}
-                  color={getStatusColor(grievance.status)}
-                  size="small"
-                />
-              </Box>
-            </Box>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Typography variant="subtitle2" color="text.secondary">Grievance ID</Typography>
-            <Typography variant="body1" gutterBottom>{grievance.id}</Typography>
-
-            <Typography variant="subtitle2" color="text.secondary">Student Name</Typography>
-            <Typography variant="body1" gutterBottom>{User.full_name}</Typography>
-
-            <Typography variant="subtitle2" color="text.secondary">Student ID</Typography>
-            <Typography variant="body1" gutterBottom>{grievance.u_id}</Typography>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Typography variant="subtitle2" color="text.secondary">Department</Typography>
-            <Typography variant="body1" gutterBottom>{User.department}</Typography>
-
-            <Typography variant="subtitle2" color="text.secondary">Assigned To</Typography>
-            <Typography variant="body1" gutterBottom>{grievance.c_id}</Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Typography variant="subtitle2" color="text.secondary">Description</Typography>
-            <Typography variant="body1" paragraph sx={{ mt: 1 }}>
-              {grievance.desc}
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-                bgcolor: 'grey.50'
-              }}
-            >
-              <IconButton
-                onClick={handlePlayPause}
-                sx={{
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  '&:hover': { bgcolor: 'primary.dark' }
-                }}
-              >
-                {isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
-              </IconButton>
-              <Box sx={{ flexGrow: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Audio Recording
-                </Typography>
-                <Typography variant="body2">
-                  Click to {isPlaying ? 'pause' : 'play'} the grievance audio
-                </Typography>
-              </Box>
-            </Paper>
-          </Grid>
-        </Grid>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
-};
+      {grievance.remarks && (
+        <div className="reply" style={{ marginTop: 24 }}>
+          <div className="detail-label">Response from the committee</div>
+          <p className="prose">{grievance.remarks}</p>
+        </div>
+      )}
+      {grievance.has_audio && (
+        <div style={{ marginTop: 24 }}><GrievanceAudio grievanceId={grievance.id} /></div>
+      )}
+    </DialogContent>
+    <DialogActions sx={{ px: 3, py: 2 }}>
+      <Button onClick={onClose} variant="outlined">Close</Button>
+    </DialogActions>
+  </Dialog>
+);

@@ -1,226 +1,251 @@
-import React, { useState, useRef, useContext } from 'react';
-import "../css/newgrievanceform.css";
-import toWav from 'audiobuffer-to-wav';
-import MicNoneIcon from '@mui/icons-material/MicNone';
-import StopCircleIcon from '@mui/icons-material/StopCircle';
-import MenuItem from '@mui/material/MenuItem';
-import Select from '@mui/material/Select';
-import FormControl from '@mui/material/FormControl';
-import InputLabel from '@mui/material/InputLabel';
-import { userContext } from '../context/usercontext';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toWav from 'audiobuffer-to-wav';
+import { Alert, Button, CircularProgress, MenuItem, TextField } from '@mui/material';
+import { api } from '../api';
+import { COMMITTEES, LANGUAGES, MAX_RECORDING_SECONDS, PREFERRED_LANGUAGE_KEY } from '../constants';
 
+async function blobToWav(blob) {
+  const audioContext = new AudioContext();
+  try {
+    const audioBuffer = await audioContext.decodeAudioData(await blob.arrayBuffer());
+    return new Blob([toWav(audioBuffer)], { type: 'audio/wav' });
+  } finally {
+    audioContext.close();
+  }
+}
+
+const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const NewGrievanceForm = () => {
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [assignedTo, setAssignedTo] = useState('not_assign');
-  const [isloading, setIsloading] = useState(false)
-  const [language, setlanguage] = useState("english")
+  const [committee, setCommittee] = useState('auto');
+  const [language, setLanguage] = useState(() => localStorage.getItem(PREFERRED_LANGUAGE_KEY) || 'english');
 
   const [isRecording, setIsRecording] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [audioURL, setAudioURL] = useState(null);
+  const [voiceError, setVoiceError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
   const chunksRef = useRef([]);
-  const navigate = useNavigate()
-  const audioBlobRef = useRef(null)
+  const audioBlobRef = useRef(null);
+  const timerRef = useRef(null);
 
-  const { User } = useContext(userContext)
+  const stopStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    clearInterval(timerRef.current);
+  };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    let formdata = new FormData()
-    formdata.append('title', title)
-    formdata.append("description", description)
-    formdata.append('blob', audioBlobRef.current)
-    formdata.append('comittee', assignedTo)
-    formdata.append('u_id', User.u_id)
-    formdata.append("language", language)
-    let res = await fetch("http://127.0.0.1:5001/add_grievance", {
-      method: "POST",
-      body: formdata
-    })
-    if (res.status == 200) {
-      alert("Grievance has been added")
-      navigate("/")
-    } else {
-      alert("There is some problem, try again after some time")
+  // Release the microphone when leaving the page.
+  useEffect(() => () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === 'recording') {
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    clearInterval(timerRef.current);
+  }, []);
+  useEffect(() => () => audioURL && URL.revokeObjectURL(audioURL), [audioURL]);
+
+  // Auto-stop at the length the speech service can handle.
+  useEffect(() => {
+    if (isRecording && seconds >= MAX_RECORDING_SECONDS && mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  }, [isRecording, seconds]);
+
+  const transcribe = async (blob) => {
+    setIsTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', await blobToWav(blob), 'audio.wav');
+      formData.append('language', language);
+      const { text } = await api.upload('grievance', '/speechToText', formData);
+      setDescription((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+    } catch (error) {
+      setVoiceError(`${error.message} The recording is still attached, so you can type the description instead.`);
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
   const startRecording = async () => {
-    setIsRecording(true)
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
+    setVoiceError('');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceError('Voice recording is not supported in this browser.');
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setVoiceError('Microphone access was blocked. Allow it in your browser’s site settings to record.');
+      return;
+    }
+    streamRef.current = stream;
     const recorder = new MediaRecorder(stream);
     mediaRecorderRef.current = recorder;
-
     chunksRef.current = [];
 
-    recorder.ondataavailable = (event) => {
-      chunksRef.current.push(event.data);
-    };
-
-    recorder.onstop = async () => {
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-      audioBlobRef.current = blob
-      const url = URL.createObjectURL(blob);
-      setAudioURL(url);
+    recorder.ondataavailable = (event) => event.data.size && chunksRef.current.push(event.data);
+    recorder.onstop = () => {
+      stopStream();
       setIsRecording(false);
-
-      const wavBlob = await blobToWav(blob);
-
-      let formdata = new FormData()
-      formdata.append("file", wavBlob, "audio.webm");
-      formdata.append("language", language)
-
-      setIsloading(true)
-      let res = await fetch("http://127.0.0.1:5001/speechToText", {
-        method: 'POST',
-        body: formdata
-      })
-      if (res.status == 200) {
-        res = await res.json()
-        setDescription(res)
-      } else {
-        res = await res.json()
-        setDescription(res.message)
-      }
-      setIsloading(false)
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      if (!blob.size) return;
+      audioBlobRef.current = blob;
+      setAudioURL(URL.createObjectURL(blob));
+      transcribe(blob);
     };
 
     recorder.start();
+    setSeconds(0);
     setIsRecording(true);
+    timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
   };
 
   const stopRecording = () => {
-    setIsRecording(false)
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+  };
+
+  const removeRecording = () => {
+    audioBlobRef.current = null;
+    setAudioURL(null);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setFormError('');
+    if (!title.trim()) return setFormError('Give your grievance a short title.');
+    if (!description.trim()) return setFormError('Describe the issue: type it, or record it with the microphone.');
+
+    const formData = new FormData();
+    formData.append('title', title.trim());
+    formData.append('description', description.trim());
+    formData.append('language', language);
+    formData.append('committee', committee);
+    if (audioBlobRef.current) {
+      const type = audioBlobRef.current.type;
+      const ext = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm';
+      formData.append('audio', audioBlobRef.current, `recording.${ext}`);
+    }
+
+    setSubmitting(true);
+    try {
+      const created = await api.upload('grievance', '/add_grievance', formData);
+      const how = created.assigned_by === 'student' ? '' : ' It was routed automatically.';
+      navigate('/', { state: { message: `Grievance #${created.id} was sent to the ${created.committee} committee.${how}` } });
+    } catch (error) {
+      setFormError(error.message);
+      setSubmitting(false);
     }
   };
 
-  const blobToWav = async (blob) => {
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioContext = new AudioContext();
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-    const wavBuffer = toWav(audioBuffer);
-    const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-
-    return wavBlob;
-  };
-
+  const busy = isRecording || isTranscribing || submitting;
 
   return (
-    <div className='gri-cont-to-fit-in-page'>
-      <div className="grievance-container">
-        <h2 className="grievance-heading">New Grievance</h2>
-        <p className="grievance-subtext">
-          Fill out the form below or record your grievance using the microphone
-        </p>
+    <div className="compose">
+      <form className="panel panel-body" onSubmit={handleSubmit} noValidate style={{ padding: 28 }}>
+        {formError && <Alert severity="error" sx={{ mb: 3 }}>{formError}</Alert>}
 
-        <form onSubmit={handleSubmit} className="grievance-form">
-          <div>
-            <label className="grievance-label">Title</label>
-            <input
-              type="text"
-              className="grievance-input"
-              placeholder={"Brief title of your grievance"}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+        <label className="field">
+          <span className="field-label">Title</span>
+          <input
+            className="text-input title-input"
+            placeholder="e.g. Two exams scheduled on the same day"
+            maxLength={400}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+
+        <div className="field-row">
+          <TextField select label="Language" value={language} onChange={(e) => setLanguage(e.target.value)}
+            disabled={isRecording || isTranscribing} helperText="Used for voice transcription too">
+            {LANGUAGES.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
+          </TextField>
+          <TextField select label="Committee" value={committee} onChange={(e) => setCommittee(e.target.value)}
+            helperText={committee === 'auto' ? 'We will pick the right one from your description' : ' '}>
+            <MenuItem value="auto">Decide for me</MenuItem>
+            {COMMITTEES.map((c) => <MenuItem key={c.value} value={c.value}>{c.label}</MenuItem>)}
+          </TextField>
+        </div>
+
+        <div className="field">
+          <label className="field-label" htmlFor="grievance-description">What happened?</label>
+          <div style={{ position: 'relative' }}>
+            <textarea
+              id="grievance-description"
+              className="text-area"
+              placeholder="Describe the issue, when it started, and anything you have already tried."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={isTranscribing}
+              maxLength={10000}
             />
-          </div>
-
-          <div className="grievance-assignment-box">
-            <FormControl fullWidth>
-              <InputLabel id="demo-simple-select-label">Select Language</InputLabel>
-              <Select
-                labelId="demo-simple-select-label"
-                id="demo-simple-select"
-                value={language}
-                label="commty"
-                onChange={(e) => { setlanguage(e.target.value) }}
-                disabled={isRecording}
-              >
-                <MenuItem value={'english'}>English</MenuItem>
-                <MenuItem value={'hindi'}>Hindi</MenuItem>
-                <MenuItem value={'marathi'}>Marahti</MenuItem>
-                <MenuItem value={'gujarati'}>Gujarati</MenuItem>
-              </Select>
-            </FormControl>
-          </div>
-
-          <div>
-            <div className="description-row">
-              <div className='flex justify-between align-baseline'>
-                <label className="grievance-label">Description</label>
-                {isRecording ? (
-                  <button
-                    type="button"
-                    className="record-button px-3 py-1 text-sm bg-red-500"
-                    onClick={stopRecording}
-                  >
-                    <StopCircleIcon />   stop Rec
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="record-button px-3 py-1 text-sm bg-black"
-                    onClick={startRecording}
-                    disabled={isloading}
-                  >
-                    <MicNoneIcon /> start Rec
-                  </button>
-                )}
-
+            {isTranscribing && (
+              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', background: 'rgba(237,231,220,0.6)', borderRadius: 9 }}>
+                <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', color: 'var(--ink-2)' }}>
+                  <CircularProgress size={18} /> Transcribing your recording…
+                </span>
               </div>
-              <textarea
-                className="grievance-textarea"
-                rows="4"
-                placeholder={isloading ? "Transcribing..." : "Enter description"}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                disabled={isloading}
-              />
-              {isloading && (
-                <div className="loading-overlay">
-                  <div className="loader"></div>
-                </div>
-              )}
-              {audioURL && <audio controls src={audioURL}></audio>}
-            </div>
+            )}
           </div>
 
-          <div className="grievance-assignment-box">
-            <FormControl fullWidth>
-              <InputLabel id="demo-simple-select-label">Select Commiitee</InputLabel>
-              <Select
-                labelId="demo-simple-select-label"
-                id="demo-simple-select"
-                value={assignedTo}
-                label="committee"
-                onChange={(e) => { setAssignedTo(e.target.value) }}
-              >
-                <MenuItem value={'not_assign'}>Not Assign</MenuItem>
-                <MenuItem value={'examination'}>Examination</MenuItem>
-                <MenuItem value={"infrastructure"}>Infrastructure</MenuItem>
-                <MenuItem value={"general_facility"}>General Facility</MenuItem>
-                <MenuItem value={"research_facility"}>Research Facility</MenuItem>
-                <MenuItem value={"journals/literature"}>Journals/literature</MenuItem>
-                <MenuItem value={"fellowship"}>Fellowship</MenuItem>
-              </Select>
-            </FormControl>
+          <div className={`recorder ${isRecording ? 'live' : ''}`}>
+            {isRecording ? (
+              <>
+                <button type="button" className="rec-btn" onClick={stopRecording}><span className="dot" />Stop</button>
+                <span className="rec-time">{clock(seconds)} / {clock(MAX_RECORDING_SECONDS)}</span>
+                <span className="rec-status">Listening…</span>
+              </>
+            ) : (
+              <>
+                <button type="button" className="rec-btn" onClick={startRecording} disabled={isTranscribing || submitting}>
+                  <span className="dot" />{audioURL ? 'Record again' : 'Record instead'}
+                </button>
+                {audioURL ? (
+                  <>
+                    <audio controls src={audioURL} />
+                    <Button size="small" color="secondary" onClick={removeRecording} disabled={busy}>Remove</Button>
+                  </>
+                ) : (
+                  <span className="rec-status">Speak for up to a minute; we’ll fill in the text for you.</span>
+                )}
+              </>
+            )}
           </div>
+          {voiceError && <Alert severity="warning" sx={{ mt: 1 }}>{voiceError}</Alert>}
+        </div>
 
-          <button
-            type="submit" className="submit-button"
-            onClick={handleSubmit}>
-            Submit Grievance
-          </button>
-        </form>
-      </div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+          <Button variant="outlined" onClick={() => navigate('/')} disabled={submitting}>Cancel</Button>
+          <Button type="submit" variant="contained" disabled={busy} sx={{ px: 3 }}>
+            {submitting ? 'Submitting…' : 'Submit grievance'}
+          </Button>
+        </div>
+      </form>
+
+      <aside className="aside-card">
+        <h3>What happens next</h3>
+        <ol className="steps">
+          <li>Your grievance is assigned to a committee — the one you chose, or the best match for what you wrote.</li>
+          <li>The committee reviews it and marks it <b>In Progress</b>, <b>Resolved</b> or <b>Rejected</b>.</li>
+          <li>Any response they write appears on the grievance in your list.</li>
+        </ol>
+        <p className="field-hint" style={{ marginTop: 14 }}>
+          Only you and the committee handling it can see your grievance and recording.
+        </p>
+      </aside>
     </div>
   );
 };

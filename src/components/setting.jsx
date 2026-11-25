@@ -1,222 +1,94 @@
-import React, { useState } from 'react';
-import {
-  Box,
-  Typography,
-  Paper,
-  Grid,
-  Switch,
-  FormControlLabel,
-  Button,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-} from '@mui/material';
-import { Save } from '@mui/icons-material';
+import { useContext, useState } from 'react';
+import { Alert, Button, MenuItem, TextField } from '@mui/material';
+import { api } from '../api';
+import { LANGUAGES, PREFERRED_LANGUAGE_KEY } from '../constants';
+import { userContext } from '../context/usercontext';
+
+const EMPTY_PASSWORDS = { current_password: '', new_password: '', confirm: '' };
 
 const Settings = () => {
-  const [settings, setSettings] = useState({
-    notifications: true,
-    emailUpdates: true,
-    darkMode: false,
-    language: 'en',
-    timezone: 'UTC',
-  });
+  const { isAdmin } = useContext(userContext);
+  const [passwords, setPasswords] = useState(EMPTY_PASSWORDS);
+  const [passwordMessage, setPasswordMessage] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [language, setLanguage] = useState(() => localStorage.getItem(PREFERRED_LANGUAGE_KEY) || 'english');
+  const [languageSaved, setLanguageSaved] = useState(false);
 
-  const handleToggle = (setting) => {
-    setSettings({
-      ...settings,
-      [setting]: !settings[setting],
-    });
+  const changePassword = async (event) => {
+    event.preventDefault();
+    setPasswordMessage(null);
+    if (passwords.new_password.length < 6) {
+      setPasswordMessage({ severity: 'error', text: 'New password must be at least 6 characters.' });
+      return;
+    }
+    if (passwords.new_password !== passwords.confirm) {
+      setPasswordMessage({ severity: 'error', text: 'The new passwords don’t match.' });
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put(isAdmin ? 'admin' : 'user', '/change_password', {
+        current_password: passwords.current_password,
+        new_password: passwords.new_password,
+      });
+      setPasswords(EMPTY_PASSWORDS);
+      setPasswordMessage({ severity: 'success', text: 'Password updated.' });
+    } catch (error) {
+      setPasswordMessage({ severity: 'error', text: error.message });
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleChange = (setting) => (event) => {
-    setSettings({
-      ...settings,
-      [setting]: event.target.value,
-    });
+  const saveLanguage = (value) => {
+    setLanguage(value);
+    localStorage.setItem(PREFERRED_LANGUAGE_KEY, value);
+    setLanguageSaved(true);
   };
 
-  const handleSave = () => {
-    // Here you would typically make an API call to save the settings
-    console.log('Settings saved:', settings);
-  };
+  const field = (name, label, autoComplete) => (
+    <TextField
+      fullWidth
+      type="password"
+      label={label}
+      value={passwords[name]}
+      onChange={(e) => setPasswords({ ...passwords, [name]: e.target.value })}
+      autoComplete={autoComplete}
+      required
+    />
+  );
 
   return (
-    <div className="profile-cont">
-      <Box>
-        <Typography variant="h4" sx={{ mb: 4 }}>
-          Settings
-        </Typography>
+    <div style={{ maxWidth: 860, display: 'grid', gap: 24 }}>
+      <section className="panel">
+        <div className="panel-head"><h2 className="panel-title">Password</h2></div>
+        <form className="panel-body" onSubmit={changePassword} style={{ display: 'grid', gap: 16, maxWidth: 460 }}>
+          {field('current_password', 'Current password', 'current-password')}
+          {field('new_password', 'New password', 'new-password')}
+          {field('confirm', 'Confirm new password', 'new-password')}
+          {passwordMessage && <Alert severity={passwordMessage.severity}>{passwordMessage.text}</Alert>}
+          <div>
+            <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Updating…' : 'Update password'}</Button>
+          </div>
+        </form>
+      </section>
 
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Notifications
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
-
-              <List>
-                <ListItem>
-                  <ListItemText
-                    primary="Push Notifications"
-                    secondary="Receive notifications about your complaints"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      edge="end"
-                      checked={settings.notifications}
-                      onChange={() => handleToggle('notifications')}
-                      sx={{
-                        '& .MuiSwitch-switchBase.Mui-checked': {
-                          color: 'black',
-                        },
-                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                          backgroundColor: 'black',
-                        },
-                        '& .MuiSwitch-thumb': {
-                          color: 'black',
-                        },
-                        '& .MuiSwitch-track': {
-                          backgroundColor: '#ccc',
-                        },
-                      }}
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-                <ListItem>
-                  <ListItemText
-                    primary="Email Updates"
-                    secondary="Receive email notifications about complaint status"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      edge="end"
-                      checked={settings.emailUpdates}
-                      onChange={() => handleToggle('emailUpdates')}
-                      sx={{
-                        '& .MuiSwitch-switchBase.Mui-checked': {
-                          color: 'black',
-                        },
-                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                          backgroundColor: 'black',
-                        },
-                        '& .MuiSwitch-thumb': {
-                          color: 'black',
-                        },
-                        '& .MuiSwitch-track': {
-                          backgroundColor: '#ccc',
-                        },
-                      }}
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-              </List>
-            </Paper>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Appearance
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
-
-              <List>
-                <ListItem>
-                  <ListItemText
-                    primary="Dark Mode"
-                    secondary="Switch between light and dark theme"
-                  />
-                  <ListItemSecondaryAction>
-                    <Switch
-                      edge="end"
-                      checked={settings.darkMode}
-                      onChange={() => handleToggle('darkMode')}
-                      sx={{
-                        '& .MuiSwitch-switchBase.Mui-checked': {
-                          color: 'black',
-                        },
-                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                          backgroundColor: 'black',
-                        },
-                        '& .MuiSwitch-thumb': {
-                          color: 'black',
-                        },
-                        '& .MuiSwitch-track': {
-                          backgroundColor: '#ccc',
-                        },
-                      }}
-                    />
-                  </ListItemSecondaryAction>
-                </ListItem>
-              </List>
-            </Paper>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Language & Region
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
-
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <FormControl fullWidth>
-                    <InputLabel>Language</InputLabel>
-                    <Select
-                      value={settings.language}
-                      label="Language"
-                      onChange={handleChange('language')}
-                    >
-                      <MenuItem value="en">English</MenuItem>
-                      <MenuItem value="hi">Hindi</MenuItem>
-                      <MenuItem value="mr">Marathi</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12}>
-                  <FormControl fullWidth>
-                    <InputLabel>Timezone</InputLabel>
-                    <Select
-                      value={settings.timezone}
-                      label="Timezone"
-                      onChange={handleChange('timezone')}
-                    >
-                      <MenuItem value="UTC">UTC</MenuItem>
-                      <MenuItem value="IST">IST (India)</MenuItem>
-                      <MenuItem value="EST">EST (Eastern Time)</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-              </Grid>
-            </Paper>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <Button
-                variant="contained"
-                startIcon={<Save />}
-                onClick={handleSave}
-                sx={{backgroundColor:"black"}}
-              >
-                Save Changes
-              </Button>
-            </Box>
-          </Grid>
-        </Grid>
-      </Box>
+      {!isAdmin && (
+        <section className="panel">
+          <div className="panel-head"><h2 className="panel-title">Language</h2></div>
+          <div className="panel-body" style={{ maxWidth: 460 }}>
+            <p className="field-hint" style={{ margin: '0 0 16px', fontSize: '0.9rem' }}>
+              The default language for new grievances and voice transcription. You can still change it on each grievance.
+            </p>
+            <TextField select fullWidth label="Preferred language" value={language} onChange={(e) => saveLanguage(e.target.value)}>
+              {LANGUAGES.map((l) => <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>)}
+            </TextField>
+            {languageSaved && <Alert severity="success" sx={{ mt: 2 }}>Saved on this device.</Alert>}
+          </div>
+        </section>
+      )}
     </div>
-
   );
 };
 
-export default Settings; 
+export default Settings;

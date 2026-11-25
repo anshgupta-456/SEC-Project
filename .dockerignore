@@ -1,0 +1,15 @@
+.git
+node_modules
+dist
+**/__pycache__
+**/*.pyc
+backend/venv
+backend/.venv
+backend/instance
+backend/.pytest_cache
+backend/tests
+**/.env
+**/.env.*
+!**/.env.example
+backend/ML_Models/*.wav
+docs

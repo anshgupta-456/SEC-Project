@@ -32,8 +32,27 @@ def _int(name, default):
 #   mysql+pymysql://USER:PASSWORD@localhost/grievance_management_system_db
 # When unset, a local SQLite file is used so the project runs with zero setup.
 DEFAULT_SQLITE_PATH = BACKEND_DIR / "instance" / "grievance.db"
-connection_string = os.getenv("DATABASE_URL") or f"sqlite:///{DEFAULT_SQLITE_PATH.as_posix()}"
+
+
+def _normalize_db_url(url):
+    """Accept the URL formats hosting providers hand out."""
+    if url.startswith("postgres://"):  # Heroku/Render style
+        return "postgresql://" + url[len("postgres://"):]
+    if url.startswith("mysql://"):  # Railway/PlanetScale style
+        return "mysql+pymysql://" + url[len("mysql://"):]
+    return url
+
+
+connection_string = _normalize_db_url(os.getenv("DATABASE_URL", "").strip()) or f"sqlite:///{DEFAULT_SQLITE_PATH.as_posix()}"
 MIGRATIONS_DIR = str(BACKEND_DIR / "shared" / "migrations")
+
+# --- Deployment ---------------------------------------------------------------
+# "production" makes the combined server (wsgi.py) refuse to start with an
+# insecure JWT secret.
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+# Built frontend (``npm run build`` output) served by wsgi.py when present.
+STATIC_DIR = Path(os.getenv("STATIC_DIR") or (BACKEND_DIR.parent / "dist"))
+PORT = _int("PORT", 8000)
 
 # --- Auth ---------------------------------------------------------------------
 _DEV_SECRET = "dev-only-insecure-jwt-secret-change-me-in-production"
