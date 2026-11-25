@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import toWav from 'audiobuffer-to-wav';
 import { Alert, Button, CircularProgress, MenuItem, TextField } from '@mui/material';
 import { api } from '../api';
-import { COMMITTEES, LANGUAGES, MAX_RECORDING_SECONDS, PREFERRED_LANGUAGE_KEY } from '../constants';
+import { COMMITTEES, LANGUAGES, MAX_RECORDING_SECONDS, MAX_UPLOAD_BYTES, PREFERRED_LANGUAGE_KEY } from '../constants';
 
 async function blobToWav(blob) {
   const audioContext = new AudioContext();
@@ -66,8 +66,12 @@ const NewGrievanceForm = () => {
   const transcribe = async (blob) => {
     setIsTranscribing(true);
     try {
+      const wav = await blobToWav(blob);
+      if (wav.size > MAX_UPLOAD_BYTES) {
+        throw new Error('This recording is too long to transcribe.');
+      }
       const formData = new FormData();
-      formData.append('file', await blobToWav(blob), 'audio.wav');
+      formData.append('file', wav, 'audio.wav');
       formData.append('language', language);
       const { text } = await api.upload('grievance', '/speechToText', formData);
       setDescription((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
@@ -127,6 +131,9 @@ const NewGrievanceForm = () => {
     setFormError('');
     if (!title.trim()) return setFormError('Give your grievance a short title.');
     if (!description.trim()) return setFormError('Describe the issue: type it, or record it with the microphone.');
+    if (audioBlobRef.current && audioBlobRef.current.size > MAX_UPLOAD_BYTES) {
+      return setFormError('The voice note is too large to upload. Remove it or record a shorter one.');
+    }
 
     const formData = new FormData();
     formData.append('title', title.trim());
