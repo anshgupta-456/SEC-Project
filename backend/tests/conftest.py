@@ -7,7 +7,8 @@ import pytest
 
 # Configure before any project module reads the environment.
 _tmp_dir = tempfile.mkdtemp(prefix="grievance-tests-")
-os.environ["DATABASE_URL"] = f"sqlite:///{Path(_tmp_dir, 'test.db').as_posix()}"
+# Set TEST_DATABASE_URL to run the suite against MySQL/PostgreSQL (tables are dropped!).
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{Path(_tmp_dir, 'test.db').as_posix()}"
 os.environ["ENABLE_ML_CLASSIFIER"] = "false"
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-secret-that-is-long-enough-for-hs256-signing"

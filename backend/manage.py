@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import config  # noqa: E402
 from shared.app_factory import create_app  # noqa: E402
 from shared.constants import COMMITTEE_DISPLAY_NAMES, normalize_committee  # noqa: E402
-from shared.seed import seed_committees  # noqa: E402
+from shared.seed import bootstrap_admin, seed_committees  # noqa: E402
 
 
 def init_db(app):
@@ -26,7 +26,8 @@ def init_db(app):
     with app.app_context():
         upgrade(directory=config.MIGRATIONS_DIR)
         added = seed_committees()
-    print(f"Database ready ({_safe_url(app)}). Committees added: {added}.")
+        admin_status = bootstrap_admin()
+    print(f"Database ready ({_safe_url(app)}). Committees added: {added}. Bootstrap admin: {admin_status}.")
 
 
 def create_admin(app, args):

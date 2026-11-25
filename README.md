@@ -166,10 +166,19 @@ The image builds the frontend, runs `manage.py init-db` (migrations + committees
 
 ### B. Render (one click, free tier)
 
-1. Push this repo to GitHub.
-2. In Render: **New → Blueprint** and select the repo. [`render.yaml`](render.yaml) creates the web service (Docker) and a PostgreSQL database, and generates `JWT_SECRET`.
-3. Optionally add `GEMINI_API_KEY` in the service's environment.
-4. Create an admin from the service's **Shell** tab: `python manage.py create-admin`.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/anshgupta-456/SEC-Project)
+
+[`render.yaml`](render.yaml) creates a Docker web service (API + frontend) and a PostgreSQL database in Singapore, and generates `JWT_SECRET`.
+
+1. Click the button (or **New → Blueprint** in the Render dashboard and pick the repo).
+2. Fill in the prompted values:
+   - `ADMIN_EMAIL`, `ADMIN_PASSWORD` — the first admin (all committees), created on the first deploy. Sign in with the email on the *Committee admin* tab.
+   - `GEMINI_API_KEY` — optional; leave blank to skip translation.
+3. Click **Apply**. The first build takes ~5 minutes; the app is then live at `https://grievance-hub-XXXX.onrender.com`.
+4. Add committee-specific admins by signing in as that admin and calling `POST /api/admin/signup`, or from your machine with the database's *External* URL:
+   `DATABASE_URL="<external url>" python manage.py create-admin --committee examination ...`
+
+Free-plan notes: the service sleeps after 15 minutes without traffic (the next visit takes ~1 minute to wake), and Render's free PostgreSQL expires 30 days after creation unless upgraded. Pushes to `main` redeploy automatically.
 
 Any Docker host works the same way (Railway, Fly.io, Koyeb...): build the root `Dockerfile` and set `DATABASE_URL` and `JWT_SECRET`.
 
@@ -261,6 +270,12 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The suite runs against a temporary SQLite database with the keyword classifier and covers authentication, access control, submissions (with and without audio), classification, the admin workflow, reports, and the combined production app.
+The suite runs against a temporary SQLite database with the keyword classifier and covers authentication, access control, submissions (with and without audio), classification, the admin workflow, reports, the first-admin bootstrap and the combined production app.
+
+To run it against PostgreSQL or MySQL instead, point `TEST_DATABASE_URL` at an **empty, disposable** database (tables are dropped):
+
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@localhost/grievance_test pytest
+```
 
 Frontend checks: `npm run lint` and `npm run build`.

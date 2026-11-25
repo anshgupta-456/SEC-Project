@@ -35,9 +35,10 @@ DEFAULT_SQLITE_PATH = BACKEND_DIR / "instance" / "grievance.db"
 
 
 def _normalize_db_url(url):
-    """Accept the URL formats hosting providers hand out."""
-    if url.startswith("postgres://"):  # Heroku/Render style
-        return "postgresql://" + url[len("postgres://"):]
+    """Accept the URL formats hosting providers hand out and pin the drivers we ship."""
+    for prefix in ("postgres://", "postgresql://"):  # Render/Heroku/Neon style
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
     if url.startswith("mysql://"):  # Railway/PlanetScale style
         return "mysql+pymysql://" + url[len("mysql://"):]
     return url
@@ -53,6 +54,13 @@ APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
 # Built frontend (``npm run build`` output) served by wsgi.py when present.
 STATIC_DIR = Path(os.getenv("STATIC_DIR") or (BACKEND_DIR.parent / "dist"))
 PORT = _int("PORT", 8000)
+
+# Optional first admin, created by ``manage.py init-db`` if no admin with this
+# email exists yet (for hosts without shell access, e.g. Render's free plan).
+# An existing admin's password is never changed by these settings.
+BOOTSTRAP_ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+BOOTSTRAP_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+BOOTSTRAP_ADMIN_NAME = os.getenv("ADMIN_NAME", "").strip() or "Administrator"
 
 # --- Auth ---------------------------------------------------------------------
 _DEV_SECRET = "dev-only-insecure-jwt-secret-change-me-in-production"

@@ -1,11 +1,14 @@
-# Render Blueprint: one Docker web service + a managed PostgreSQL database.
-# In Render: New > Blueprint > pick this repo.
+# Render Blueprint: one Docker web service (API + frontend) and a PostgreSQL database.
+# Deploy: https://render.com/deploy?repo=https://github.com/anshgupta-456/SEC-Project
+#   or in the dashboard: New > Blueprint > pick this repo.
 services:
   - type: web
     name: grievance-hub
     runtime: docker
     plan: free
+    region: singapore
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -13,6 +16,15 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      # First admin (all committees). Created on the first deploy only;
+      # changing these later never resets an existing admin's password.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NAME
+        value: Administrator
+      # Optional: translate Hindi/Marathi/Gujarati before classification.
       - key: GEMINI_API_KEY
         sync: false
       - key: ENABLE_ML_CLASSIFIER
@@ -23,3 +35,5 @@ services:
 databases:
   - name: grievance-hub-db
     plan: free
+    region: singapore
+    databaseName: grievance_hub

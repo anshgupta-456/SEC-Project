@@ -1,7 +1,7 @@
 # Full stack on one machine: MySQL + the app (API and frontend on port 8000).
 #   cp .env.docker.example .env      # then set real secrets
 #   docker compose up -d --build
-#   docker compose exec app python manage.py create-admin
+#   (set ADMIN_EMAIL/ADMIN_PASSWORD in .env, or: docker compose exec app python manage.py create-admin)
 services:
   db:
     image: mysql:8.4
@@ -32,6 +32,8 @@ services:
       DATABASE_URL: mysql+pymysql://grievance:${MYSQL_PASSWORD}@db/grievance_management_system_db
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ENABLE_ML_CLASSIFIER: ${INSTALL_ML:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     ports:
