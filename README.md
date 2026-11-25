@@ -13,8 +13,23 @@ An institutional grievance redressal system. Students raise a grievance by typin
 
 ---
 
+## Demo login
+
+Admin account for the deployed demo (all committees). Sign in on the **Committee admin** tab:
+
+| Role | Admin ID / email | Password |
+|---|---|---|
+| Admin (all committees) | `admin@gmail.com` | `admin123` |
+
+Students don't need a pre-made account: use **Create an account** on the sign-in page.
+
+> This login is public. Use the demo with test data only, and change the password in **Settings → Password** (or remove this section) before real students use the site.
+
+---
+
 ## Contents
 
+- [Demo login](#demo-login)
 - [Features](#features)
 - [Tech stack](#tech-stack)
 - [Run it locally](#run-it-locally)
